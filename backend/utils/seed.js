@@ -412,6 +412,62 @@ async function seed() {
   }
   console.log(`✅ ${notifications.length} notifications seeded`);
 
+  // ─── 16. WHATSAPP LOGS (in-app messenger threads) ───
+  // Bilingual conversation threads so the Messages tab has content immediately.
+  // dev-mode logs only (no paid WhatsApp API required).
+  const waLogs = [
+    // Thread: Michael Johnson (contact 1) — English
+    { contact_id: 1, to_number: '+1-415-555-0101', message: 'Hi Michael, sending over the Pro License proposal as discussed. 📄', direction: 'outbound', status: 'read', mins: 240 },
+    { contact_id: 1, to_number: '+1-415-555-0101', message: 'Thanks! Just opened it — the volume discount looks great. Quick question: does the Pro tier include the WhatsApp integration out of the box?', direction: 'inbound', status: 'read', mins: 220 },
+    { contact_id: 1, to_number: '+1-415-555-0101', message: 'Yes, Pro includes unlimited WhatsApp messaging + AI enrichments. Starter is email-only.', direction: 'outbound', status: 'read', mins: 210 },
+    { contact_id: 1, to_number: '+1-415-555-0101', message: 'Perfect. Let me run it by Robert (CFO) and I will get back to you by Friday.', direction: 'inbound', status: 'read', mins: 90 },
+    { contact_id: 1, to_number: '+1-415-555-0101', message: 'Sounds good — I will hold the 50-seat pricing until then. Talk soon!', direction: 'outbound', status: 'read', mins: 80 },
+    // Thread: Khalid Al-Rashid (contact 3) — Arabic
+    { contact_id: 3, to_number: '+971-50-123-4567', message: 'مرحباً خالد، تم تأكيد موعد العرض التوضيحي يوم الخميس الساعة 10 صباحاً. 📅', direction: 'outbound', status: 'read', mins: 600 },
+    { contact_id: 3, to_number: '+971-50-123-4567', message: 'شكراً لك، سأكون حاضراً. هل يمكن إرسال رابط الاجتماع مقدماً؟', direction: 'inbound', status: 'read', mins: 580 },
+    { contact_id: 3, to_number: '+971-50-123-4567', message: 'بالتأكيد، سأرسل الرابط عبر البريد الإلكتروني بعد قليل. 📧', direction: 'outbound', status: 'read', mins: 560 },
+    { contact_id: 3, to_number: '+971-50-123-4567', message: 'تم الاستلام، شكراً جزيلاً. العرض التوضيحي أعجبني كثيراً 😄', direction: 'inbound', status: 'read', mins: 80 },
+    // Thread: Aisha Al-Saud (contact 4) — Arabic, has unread (recent inbound)
+    { contact_id: 4, to_number: '+971-55-987-6543', message: 'سلامة دكتورة عائشة، هل يمكنكم تزويدنا بعرض توضيحي لتكامل واتساب؟', direction: 'outbound', status: 'read', mins: 300 },
+    { contact_id: 4, to_number: '+971-55-987-6543', message: 'نعم بالتأكيد، هذا يهمّنا كثيراً. متى يكون متاح لديكم هذا الأسبوع؟', direction: 'inbound', status: 'read', mins: 280 },
+    { contact_id: 4, to_number: '+971-55-987-6543', message: 'متاح في أي وقت بعد ظهر الثلاثاء. سأرسل لك دعوة التقويم.', direction: 'outbound', status: 'read', mins: 270 },
+    { contact_id: 4, to_number: '+971-55-987-6543', message: 'ممتاز، في انتظار الدعوة. لي سؤال أخير: هل تكامل واتساب يدعم الردود التلقائية؟ 🤖', direction: 'inbound', status: 'read', mins: 15 },
+    // Thread: Hans Mueller (contact 6) — English, has unread (recent inbound)
+    { contact_id: 6, to_number: '+49-30-1234-5678', message: 'Hallo Hans, following up on the Starter package we discussed. Are you still evaluating?', direction: 'outbound', status: 'read', mins: 1440 },
+    { contact_id: 6, to_number: '+49-30-1234-5678', message: 'Hi! Yes, we are comparing you with Salesforce at the moment. Can you send the comparison sheet?', direction: 'inbound', status: 'read', mins: 1380 },
+    { contact_id: 6, to_number: '+49-30-1234-5678', message: 'Absolutely. Sending it now — happy to jump on a call to walk through the differences. 📞', direction: 'outbound', status: 'read', mins: 1370 },
+    { contact_id: 6, to_number: '+49-30-1234-5678', message: 'Got it, thanks. One thing: your bilingual EN/AR support is a big plus for our Dubai office.', direction: 'inbound', status: 'read', mins: 30 },
+    // Thread: Mohamed Fathy (contact 8) — Arabic
+    { contact_id: 8, to_number: '+20-100-123-4567', message: 'أهلاً محمد، تم إرسال مسودة العقد للمراجعة. بانتظار موافقة الفريق القانوني.', direction: 'outbound', status: 'read', mins: 720 },
+    { contact_id: 8, to_number: '+20-100-123-4567', message: 'استلمناها، الفريق القانوني سيراجعها خلال 48 ساعة. شكراً', direction: 'inbound', status: 'read', mins: 700 },
+    { contact_id: 8, to_number: '+20-100-123-4567', message: 'تمام، في انتظار الرد. سأكون متاحاً لأي استفسار. 👍', direction: 'outbound', status: 'read', mins: 690 },
+    // Thread: Wei Zhang (contact 11) — English
+    { contact_id: 11, to_number: '+65-8123-4567', message: 'Hi Wei, great connecting at the conference! Here is the technical API doc you asked for. 🔗', direction: 'outbound', status: 'read', mins: 2880 },
+    { contact_id: 11, to_number: '+65-8123-4567', message: 'Thanks! Priya and I will review the SSO setup section this week.', direction: 'inbound', status: 'read', mins: 2820 },
+    { contact_id: 11, to_number: '+65-8123-4567', message: 'Sounds great. Let me know if you need a sandbox environment to test against. 🛠️', direction: 'outbound', status: 'read', mins: 2810 },
+    // Thread: Noura Al-Qahtani (contact 10) — Arabic, has unread (recent inbound)
+    { contact_id: 10, to_number: '+966-56-333-4444', message: 'مرحباً نورة، أتمنى أن تكوني بخير. هل لديكِ أي استفسار حول ميزة التقارير؟', direction: 'outbound', status: 'read', mins: 1800 },
+    { contact_id: 10, to_number: '+966-56-333-4444', message: 'نعم، هل يمكن تخصيص لوحات التقارير حسب الفريق؟', direction: 'inbound', status: 'read', mins: 60 },
+    // Thread: Robert Davis (contact 14) — English (renewal reminder activity mirror)
+    { contact_id: 14, to_number: '+1-415-555-0103', message: 'Hi Robert, sending a friendly reminder — your renewal is coming up in 60 days. Let me know if you want to keep the same plan or upgrade.', direction: 'outbound', status: 'read', mins: 3000 },
+    { contact_id: 14, to_number: '+1-415-555-0103', message: 'Thanks for the heads up. We are happy with the current plan — please send the renewal invoice.', direction: 'inbound', status: 'read', mins: 2950 },
+  ];
+  for (const w of waLogs) {
+    // Only seed when the table is empty, so re-running the seed script
+    // doesn't create duplicate conversation logs.
+    const [[waCount]] = await pool.query('SELECT COUNT(*) AS cnt FROM whatsapp_logs');
+    if (Number(waCount.cnt) > 0) {
+      console.log('ℹ️  WhatsApp logs already present — skipping WA seed (idempotent)');
+      break;
+    }
+    await pool.query(
+      `INSERT INTO whatsapp_logs (contact_id, to_number, message, direction, status, wa_message_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, DATE_SUB(NOW(), INTERVAL ? MINUTE))`,
+      [w.contact_id, w.to_number, w.message, w.direction, w.status, `seed_${w.contact_id}_${w.mins}`, w.mins]
+    );
+  }
+  console.log(`✅ ${waLogs.length} WhatsApp conversation logs seeded`);
+
   console.log('\n🎉 Database seeding complete!\n');
   console.log('═══════════════════════════════════════════════════');
   console.log('  Login credentials (all users same password):');

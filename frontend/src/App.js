@@ -18,6 +18,7 @@ import DealsPage from './pages/DealsPage';
 import DealDetailPage from './pages/DealDetailPage';
 import PipelinePage from './pages/PipelinePage';
 import ActivitiesPage from './pages/ActivitiesPage';
+import MessagesPage from './pages/MessagesPage';
 import ReportsPage from './pages/ReportsPage';
 import SettingsPage from './pages/SettingsPage';
 import AdminPage from './pages/AdminPage';
@@ -89,6 +90,7 @@ function App() {
           <Route path="pipeline" element={<PipelinePage />} />
           <Route path="pipeline/:id" element={<PipelinePage />} />
           <Route path="activities" element={<ActivitiesPage />} />
+          <Route path="messages" element={<MessagesPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="admin" element={<AdminPage />} />

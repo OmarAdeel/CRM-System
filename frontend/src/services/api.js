@@ -201,9 +201,12 @@ export const emailAPI = {
 };
 
 export const whatsappAPI = {
+  getConversations: () => api.get('/whatsapp/conversations'),
   send: (data) => api.post('/whatsapp/send', data),
   getHistory: (contactId) => api.get(`/whatsapp/history/${contactId}`),
   getStatus: () => api.get('/whatsapp/status'),
+  markRead: (contactId) => api.patch(`/whatsapp/mark-read/${contactId}`),
+  simulateInbound: (data) => api.post('/whatsapp/simulate-inbound', data),
 };
 
 export const oauthAPI = {

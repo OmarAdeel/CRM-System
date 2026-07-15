@@ -51,6 +51,8 @@ function connect(token, userId) {
     'deal:moved',
     'activity:created',
     'notification',
+    'whatsapp:sent',
+    'whatsapp:received',
   ];
 
   knownEvents.forEach((event) => {

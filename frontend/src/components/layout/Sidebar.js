@@ -16,6 +16,7 @@ import {
   ArrowUpTrayIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ChatBubbleLeftIcon,
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../context/AuthContext';
 
@@ -44,6 +45,7 @@ const Sidebar = () => {
     { path: '/deals', icon: BanknotesIcon, label: t('navigation.deals') },
     { path: '/pipeline', icon: ArrowsRightLeftIcon, label: t('navigation.pipeline') },
     { path: '/activities', icon: ClockIcon, label: t('navigation.activities') },
+    { path: '/messages', icon: ChatBubbleLeftIcon, label: t('navigation.messages') },
     { path: '/reports', icon: ChartBarIcon, label: t('navigation.reports') },
   ];
 
