@@ -121,6 +121,7 @@ export const aiAPI = {
   generateSummary: (dealId) => api.post(`/ai/generate-summary/${dealId}`),
   scanStagnant: () => api.post('/ai/scan-stagnant'),
   getStatus: () => api.get('/ai/status'),
+  generateReportInsights: () => api.post('/ai/report-insights', {}, { timeout: 100000 }),
 };
 
 // ─── Automations ───────────────────────────────────────

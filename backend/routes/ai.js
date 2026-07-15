@@ -241,11 +241,26 @@ router.get('/status', auth, async (req, res) => {
     success: true,
     data: {
       openai_enabled: ai.HAS_OPENAI,
+      provider: ai.PROVIDER_LABEL,
+      model: ai.DEFAULT_MODEL,
       message: ai.HAS_OPENAI
-        ? 'OpenAI integration is active.'
-        : 'OpenAI API key not configured. Using heuristic fallbacks.',
+        ? `AI integration is active (${ai.PROVIDER_LABEL}).`
+        : 'OpenAI API key not configured. Using heuristic fallbacks for all AI features.',
     },
   });
+});
+
+// ─── POST /api/ai/report-insights ───────────────────
+// Returns natural-language insights generated from CRM report data.
+// Uses the configured OpenAI-compatible endpoint when available.
+router.post('/report-insights', auth, async (req, res) => {
+  try {
+    const result = await ai.generateReportInsights(req.body && req.body.snapshot ? req.body.snapshot : undefined);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('Report insights error:', err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
 });
 
 module.exports = router;

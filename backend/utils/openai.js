@@ -15,19 +15,34 @@
 
 const OpenAI = require('openai');
 const axios = require('axios');
+const https = require('https');
 const pool = require('../config/db');
 
+// ─── Configuration: supports OpenAI or any OpenAI-compatible endpoint ───
+//    Set OPENAI_API_KEY and optionally OPENAI_BASE_URL + OPENAI_MODEL.
+//    Example custom endpoint:
+//      OPENAI_API_KEY=sk-...
+//      OPENAI_BASE_URL=https://api.hcnsec.cn/v1
+//      OPENAI_MODEL=DeepSeek-V4-Flash
 const apiKey = process.env.OPENAI_API_KEY;
+const baseURL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').trim().replace(/\/$/, '');
+const DEFAULT_MODEL = (process.env.OPENAI_MODEL || 'gpt-4o-mini').trim();
 
-let openai = null;
-if (apiKey && apiKey.startsWith('sk-')) {
-  openai = new OpenAI({ apiKey });
+let HAS_OPENAI = false;
+if (apiKey) {
+  HAS_OPENAI = true;
 }
 
-const HAS_OPENAI = !!openai;
+/**
+ * Human-readable label for the active AI provider (e.g. "DeepSeek-V4-Flash@custom").
+ */
+const PROVIDER_LABEL = HAS_OPENAI
+  ? (baseURL !== 'https://api.openai.com/v1' ? `${DEFAULT_MODEL}@custom` : `${DEFAULT_MODEL}@openai`)
+  : 'heuristic';
 
 /**
- * Call OpenAI Chat Completions with a system + user prompt.
+ * Call a chat-completions endpoint (OpenAI or compatible) with system + user prompt.
+ * Uses Node's native https module directly for maximum compatibility with custom API gateways.
  * Returns the assistant's text response.
  */
 async function chat(systemPrompt, userPrompt, options = {}) {
@@ -35,17 +50,65 @@ async function chat(systemPrompt, userPrompt, options = {}) {
     throw new Error('OpenAI API key not configured');
   }
 
-  const response = await openai.chat.completions.create({
-    model: options.model || 'gpt-4o-mini',
+  const payload = {
+    model: options.model || DEFAULT_MODEL,
     temperature: options.temperature ?? 0.7,
     max_tokens: options.maxTokens || 800,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
-  });
+  };
 
-  return response.choices[0].message.content.trim();
+  // Build the completions URL.
+  const endpoint = baseURL.endsWith('/v1')
+    ? `${baseURL}/chat/completions`
+    : `${baseURL}/v1/chat/completions`;
+  const url = new URL(endpoint);
+
+  return new Promise((resolve, reject) => {
+    const bodyStr = JSON.stringify(payload);
+    const req = https.request({
+      hostname: url.hostname,
+      port: url.port || 443,
+      path: url.pathname + url.search,
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(bodyStr),
+        'Accept': 'application/json',
+        'User-Agent': 'crm-backend/1.0',
+      },
+      timeout: 90000,
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        if (res.statusCode >= 400) {
+          reject(new Error(`AI provider returned status ${res.statusCode}: ${data.slice(0, 300)}`));
+          return;
+        }
+        try {
+          const parsed = JSON.parse(data);
+          if (!parsed.choices || !parsed.choices[0]) {
+            reject(new Error(`AI provider returned unexpected shape: ${data.slice(0, 300)}`));
+            return;
+          }
+          resolve(parsed.choices[0].message.content.trim());
+        } catch (e) {
+          reject(new Error(`Failed to parse AI response: ${e.message}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('AI provider request timed out (90s)'));
+    });
+    req.write(bodyStr);
+    req.end();
+  });
 }
 
 // ─── Email Drafting ─────────────────────────────────────
@@ -387,8 +450,144 @@ async function scanStagnantDeals() {
   return recommendations;
 }
 
+// ─── AI Report Insights ─────────────────────────────────
+
+/**
+ * Build a JSON snapshot of key CRM metrics suitable for an LLM prompt.
+ * Fetches pipeline value, win rate, leaderboard, funnel, lost reasons.
+ */
+async function buildReportSnapshot() {
+  // Pipeline totals
+  const [[pipeRow]] = await pool.query(`
+    SELECT
+      COUNT(*)                                   AS total_deals,
+      SUM(CASE WHEN status='open'   THEN value END) AS pipeline_value,
+      SUM(CASE WHEN status='won'    THEN value END) AS won_value,
+      SUM(CASE WHEN status='lost'   THEN value END) AS lost_value,
+      COUNT(CASE WHEN status='open'  THEN 1 END)   AS open_count,
+      COUNT(CASE WHEN status='won'   THEN 1 END)   AS won_count,
+      COUNT(CASE WHEN status='lost'  THEN 1 END)   AS lost_count
+    FROM deals WHERE status IN ('open','won','lost')
+  `);
+
+  // Funnel by stage
+  const [funnel] = await pool.query(`
+    SELECT s.name, COUNT(d.id) AS deal_count, COALESCE(SUM(d.value),0) AS total_value
+    FROM stages s
+    LEFT JOIN deals d ON d.stage_id=s.id AND d.status='open'
+    WHERE s.is_won=FALSE AND s.is_lost=FALSE
+    GROUP BY s.id, s.name ORDER BY s.sort_order
+  `);
+
+  // Leaderboard (last 7 days)
+  const [leaderboard] = await pool.query(`
+    SELECT u.first_name, u.last_name,
+           COUNT(a.id) AS total_activities,
+           COUNT(CASE WHEN a.activity_type='call' THEN 1 END) AS calls,
+           COUNT(CASE WHEN a.activity_type='email' THEN 1 END) AS emails,
+           COUNT(CASE WHEN a.activity_type='meeting' THEN 1 END) AS meetings
+    FROM users u
+    LEFT JOIN activities a ON a.user_id=u.id
+      AND a.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+    WHERE u.is_active=TRUE
+    GROUP BY u.id, u.first_name, u.last_name
+    ORDER BY total_activities DESC LIMIT 10
+  `);
+
+  // Lost reasons
+  const [lost] = await pool.query(`
+    SELECT loss_reason, COUNT(*) AS count FROM deals
+    WHERE status='lost' AND loss_reason IS NOT NULL
+    GROUP BY loss_reason ORDER BY count DESC LIMIT 5
+  `);
+
+  return {
+    period: 'last 7 days',
+    pipeline_value: parseFloat(pipeRow.pipeline_value || 0),
+    won_value: parseFloat(pipeRow.won_value || 0),
+    lost_value: parseFloat(pipeRow.lost_value || 0),
+    total_deals: Number(pipeRow.total_deals || 0),
+    open_count: Number(pipeRow.open_count || 0),
+    won_count: Number(pipeRow.won_count || 0),
+    lost_count: Number(pipeRow.lost_count || 0),
+    win_rate: pipeRow.total_deals > 0
+      ? Math.round((pipeRow.won_count / (pipeRow.won_count + pipeRow.lost_count || 1)) * 100)
+      : 0,
+    funnel: funnel.map(f => ({ stage: f.name, deals: Number(f.deal_count), value: parseFloat(f.total_value) })),
+    leaderboard: leaderboard.map(l => ({
+      rep: `${l.first_name} ${l.last_name}`,
+      total: Number(l.total_activities),
+      calls: Number(l.calls), emails: Number(l.emails), meetings: Number(l.meetings),
+    })),
+    lost_reasons: lost.map(l => ({ reason: l.loss_reason, count: Number(l.count) })),
+  };
+}
+
+/**
+ * Generate natural-language insights from CRM report data.
+ * Calls OpenAI-compatible endpoint when configured (see OPENAI_BASE_URL),
+ * otherwise returns deterministic heuristic insights.
+ *
+ * @param {object} [overrideSnapshot] - optional prebuilt snapshot (for testing)
+ * @returns {Promise<{success:boolean, source:string, insights:string, snapshot:object, generatedAt:string}>}
+ */
+async function generateReportInsights(overrideSnapshot) {
+  const snapshot = overrideSnapshot || await buildReportSnapshot();
+  const generatedAt = new Date().toISOString();
+
+  // ─── Heuristic fallback ───
+  const heuristic = () => {
+    const lines = [];
+    const winRate = snapshot.win_rate || 0;
+    lines.push(`📈 Performance overview`);
+    lines.push(`Open pipeline currently holds ${snapshot.open_count} deals worth $${(snapshot.pipeline_value/1000).toFixed(1)}K.`);
+    if (snapshot.won_count > 0) lines.push(`Closed ${snapshot.won_count} deal(s) totaling $${(snapshot.won_value/1000).toFixed(1)}K — win rate ${winRate}%.`);
+    if (snapshot.lost_count > 0) lines.push(`Lost ${snapshot.lost_count} deal(s) worth $${(snapshot.lost_value/1000).toFixed(1)}K over the same period.`);
+    if (snapshot.funnel.length > 0) {
+      const first = snapshot.funnel[0];
+      const last = snapshot.funnel[snapshot.funnel.length - 1];
+      const dropPct = first.deals > 0
+        ? Math.max(0, Math.round(((first.deals - last.deals) / first.deals) * 100))
+        : 0;
+      lines.push(`🔍 Funnel drop-off`);
+      lines.push(`${first.stage} → ${last.stage}: ${dropPct}% drop-off, ${first.deals} to ${last.deals} deals.`);
+    }
+    if (snapshot.leaderboard.length > 0 && snapshot.leaderboard[0].total > 0) {
+      const top = snapshot.leaderboard[0];
+      lines.push(`🏆 Activity`);
+      lines.push(`Top performer: ${top.rep} with ${top.total} activities (${top.calls} calls, ${top.emails} emails, ${top.meetings} meetings) in 7 days.`);
+    }
+    if (snapshot.lost_reasons.length > 0) {
+      lines.push(`⚠️ Loss signals`);
+      lines.push(`Top loss reason: "${snapshot.lost_reasons[0].reason}" (${snapshot.lost_reasons[0].count} deals).`);
+    }
+    return lines.join('\n');
+  };
+
+  if (!HAS_OPENAI) {
+    return { success: true, source: 'heuristic', insights: heuristic(), snapshot, generatedAt };
+  }
+
+  // ─── AI insights ───
+  try {
+    const systemPrompt =
+      'You are a B2B sales analyst. Given CRM metrics as JSON, produce concise insights in 5 sections with emoji headers: "📈 Performance", "🔍 Funnel", "🏆 Top performer", "⚠️ Losses", "✅ Actions". 1 line each. End with one takeaway.';
+    const userPrompt = JSON.stringify(snapshot);
+    const aiResponse = await chat(systemPrompt, userPrompt, {
+      temperature: 0.5,
+      maxTokens: 600,
+    });
+    return { success: true, source: PROVIDER_LABEL, insights: aiResponse, snapshot, generatedAt };
+  } catch (err) {
+    console.error('AI report insights error:', err.message);
+    return { success: true, source: 'heuristic (fallback)', insights: heuristic(), snapshot, generatedAt, error: err.message };
+  }
+}
+
 module.exports = {
   HAS_OPENAI,
+  PROVIDER_LABEL,
+  DEFAULT_MODEL,
   chat,
   draftEmail,
   translate,
@@ -397,4 +596,5 @@ module.exports = {
   enrichContact,
   generateDealSummary,
   scanStagnantDeals,
+  generateReportInsights,
 };
