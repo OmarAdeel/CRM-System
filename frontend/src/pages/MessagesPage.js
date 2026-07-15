@@ -146,19 +146,28 @@ const MessagesPage = () => {
     const onReceived = (data) => {
       const cid = Number(data?.contactId);
       if (!cid) return;
-      // If active conversation, append the message locally
+      // If active conversation, append the message locally (deduped by body+time
+      // so a duplicate socket delivery doesn't show twice).
       if (cid === activeId) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `in_${Date.now()}`,
-            to_number: data.from || '',
-            message: data.body,
-            direction: 'inbound',
-            status: 'read',
-            created_at: new Date().toISOString(),
-          },
-        ]);
+        setMessages((prev) => {
+          const justAdded = prev.some((m) =>
+            m.direction === 'inbound' &&
+            m.message === data.body &&
+            Math.abs(new Date(m.created_at) - Date.now()) < 2000
+          );
+          if (justAdded) return prev;
+          return [
+            ...prev,
+            {
+              id: `in_${Date.now()}`,
+              to_number: data.from || '',
+              message: data.body,
+              direction: 'inbound',
+              status: 'read',
+              created_at: new Date().toISOString(),
+            },
+          ];
+        });
         whatsappAPI.markRead(cid).catch(() => {});
       } else {
         const conv = conversations.find((c) => c.contact_id === cid);
@@ -170,20 +179,15 @@ const MessagesPage = () => {
     };
     const onSent = (data) => {
       const cid = Number(data?.contactId);
-      if (cid && cid === activeId) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `out_${Date.now()}`,
-            to_number: data.to || '',
-            message: data.body,
-            direction: 'outbound',
-            status: 'sent',
-            created_at: new Date().toISOString(),
-          },
-        ]);
+      // Don't append here — the sender already added the message optimistically
+      // in sendMessage(). The socket echo is only useful for OTHER tabs/users, who
+      // will see it when they reload the conversation history. Appending here caused
+      // duplicate (and with StrictMode, triplicate) messages for the sender.
+      if (cid && cid !== activeId) {
+        loadConversations();
+      } else {
+        loadConversations();
       }
-      loadConversations();
     };
     const unsub1 = socket.subscribe('whatsapp:received', onReceived);
     const unsub2 = socket.subscribe('whatsapp:sent', onSent);
